@@ -131,6 +131,18 @@ View, play back, and manage your previously generated audio files.
 
 **Note for Linux users:** The Linux installation skips `openai-whisper` (compatibility issues). VibeVoice ASR is used for transcription instead.
 
+### MLX Acceleration (Apple Silicon)
+
+On Apple Silicon (macOS), you can enable MLX-based speedups via the `vllm-mlx` backend:
+
+1. Install MLX dependencies:
+```bash
+pip install mlx vllm-mlx
+```
+2. In **Settings → Model Loading**, set **MLX Acceleration** to `enabled` (or leave `auto`).
+
+When available, Voice Clone Studio will apply MLX speedups to supported models at load time.
+
 ### Setup
 
 #### Quick Setup (Windows)
@@ -383,4 +395,3 @@ This project is based on and uses code from:
 For detailed version history and release notes, see [docs/updates.md](docs/updates.md).
 
 **Latest Version:** 0.6.0 - Enhanced Model Support & Settings (January 27, 2026)
-

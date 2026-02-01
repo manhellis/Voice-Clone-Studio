@@ -26,6 +26,8 @@ deepfilternet
 
 # Platform-specific packages
 openai-whisper; sys_platform == 'win32'  # Windows only - Linux/macOS use VibeVoice ASR instead
+mlx; sys_platform == 'darwin'  # Apple Silicon acceleration (optional)
+vllm-mlx; sys_platform == 'darwin'  # MLX-backed speedups (optional)
 
 # Optional performance enhancements (install separately for best performance):
 # - Flash Attention 2 (fast): pip install flash-attn --no-build-isolation

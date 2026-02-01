@@ -15,6 +15,7 @@ import shutil
 import re
 import time
 import tempfile
+import importlib
 from textwrap import dedent
 import markdown
 import platform
@@ -155,6 +156,7 @@ def load_config():
         "whisper_language": "Auto-detect",
         "low_cpu_mem_usage": False,
         "attention_mechanism": "auto",
+        "mlx_acceleration": "auto",
         "offline_mode": False,
         "browser_notifications": True,
         "samples_folder": "samples",
@@ -562,6 +564,76 @@ def get_attention_implementation(user_preference="auto"):
     return mechanisms_to_try
 
 
+def _mlx_acceleration_preference():
+    """Return MLX acceleration preference from config."""
+    return _user_config.get("mlx_acceleration", "auto")
+
+
+def _mlx_supported_platform():
+    """Check if MLX acceleration is relevant on this platform."""
+    return platform.system() == "Darwin"
+
+
+def _load_vllm_mlx_module():
+    """Try to import the vllm-mlx module if available."""
+    try:
+        return importlib.import_module("vllm_mlx")
+    except ImportError:
+        return None
+
+
+def _mlx_core_available():
+    """Check if MLX core runtime is available."""
+    try:
+        importlib.import_module("mlx.core")
+        return True
+    except ImportError:
+        return False
+
+
+def maybe_apply_mlx_speedups(model, model_name):
+    """Apply MLX-based speedups if available and enabled."""
+    preference = _mlx_acceleration_preference()
+    if preference == "disabled":
+        return False
+
+    if preference == "auto" and not _mlx_supported_platform():
+        return False
+
+    if not _mlx_core_available():
+        if preference == "enabled":
+            print("⚠ MLX acceleration requested but mlx is not installed.")
+        return False
+
+    vllm_mlx = _load_vllm_mlx_module()
+    if not vllm_mlx:
+        if preference == "enabled":
+            print("⚠ MLX acceleration requested but vllm-mlx is not installed.")
+        return False
+
+    speedup_hooks = [
+        "accelerate_model",
+        "apply_mlx_optimizations",
+        "optimize_model",
+        "enable_mlx_speedups"
+    ]
+
+    for hook in speedup_hooks:
+        func = getattr(vllm_mlx, hook, None)
+        if callable(func):
+            try:
+                func(model)
+                print(f"✓ Applied MLX speedups ({hook}) for {model_name}")
+                return True
+            except Exception as e:
+                print(f"⚠ MLX speedup hook {hook} failed for {model_name}: {e}")
+                return False
+
+    if preference == "enabled":
+        print("⚠ vllm-mlx is installed but no supported speedup hook was found.")
+    return False
+
+
 def check_model_available_locally(model_name):
     """Check if model is available in local models/ directory for offline mode.
 
@@ -737,6 +809,7 @@ def load_model_with_attention(model_class, model_name, user_preference="auto", *
                 **kwargs
             )
             print(f"✓ Model loaded with {attn}")
+            maybe_apply_mlx_speedups(model, model_name)
             return model, attn
         except Exception as e:
             error_msg = str(e).lower()
@@ -916,6 +989,8 @@ def get_vibe_voice_model():
 
             if device != "auto":
                 model = model.to(device)
+
+            maybe_apply_mlx_speedups(model, model_path)
 
             model.eval()
 
@@ -6567,6 +6642,13 @@ def create_ui():
                                 info="Choose attention implementation.\nAuto = fastest available. flash_attention_2 (fastest) → sdpa (fast, built-in PyTorch 2.0+) → eager (slowest, always works)"
                             )
 
+                            settings_mlx_acceleration = gr.Dropdown(
+                                label="MLX Acceleration (Apple Silicon)",
+                                choices=["auto", "enabled", "disabled"],
+                                value=_user_config.get("mlx_acceleration", "auto"),
+                                info="Enable MLX-based speedups via vllm-mlx on macOS. Auto enables MLX on Apple Silicon when available."
+                            )
+
                             with gr.Row():
                                 settings_audio_notifications = gr.Checkbox(
                                     label="Audio Notifications",
@@ -6696,6 +6778,13 @@ def create_ui():
                 settings_attention_mechanism.change(
                     lambda x: save_preference("attention_mechanism", x),
                     inputs=[settings_attention_mechanism],
+                    outputs=[]
+                )
+
+                # Save MLX acceleration setting
+                settings_mlx_acceleration.change(
+                    lambda x: save_preference("mlx_acceleration", x),
+                    inputs=[settings_mlx_acceleration],
                     outputs=[]
                 )
 
